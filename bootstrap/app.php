@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Middleware\ApiLoggingMiddleware;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -15,7 +16,12 @@ return Application::configure(basePath: dirname(__DIR__))
         apiPrefix: 'api/v1',
     )
     ->withMiddleware(static function (Middleware $middleware): void {
-        //
+
+        // apply only to API routes
+        $middleware->appendToGroup('api', [
+            ApiLoggingMiddleware::class,
+        ]);
+
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->render(static function (NotFoundHttpException $e, $request) {
