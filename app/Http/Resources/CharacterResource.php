@@ -16,7 +16,7 @@ class CharacterResource extends JsonResource
     {
         parent::toArray($request);
         return [
-            'id' => $this->id,
+
             'name' => $this->name,
             'bio' => $this->bio,
 
