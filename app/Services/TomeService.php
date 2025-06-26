@@ -9,24 +9,62 @@ use JsonException;
 
 class TomeService
 {
+    private const DEFAULT_PER_PAGE = 10;
+    private const DEFAULT_PAGINATE_THRESHOLD = 10;
+
     /**
      * Get paginated lightweight tomes with metadata for index.
-     *
-     * @param int|null $perPage
-     * @param int $paginateThreshold
-     * @return array
      */
-    public function getTomesForIndex(int|null $perPage = null, int $paginateThreshold = 10): array
+    public function getTomesForIndex(?int $perPage = null, int $paginateThreshold = self::DEFAULT_PAGINATE_THRESHOLD): array
     {
-        $perPage ??= 10;
+        $perPage ??= self::DEFAULT_PER_PAGE;
         $totalTomes = Tome::count();
-
-        $query = Tome::with(['author', 'language'])->withCount('spells');
+        $query = $this->buildTomeQuery();
 
         if ($totalTomes > $paginateThreshold) {
-            $paginator = $query->paginate($perPage);
-            $data = TomeListResource::collection($paginator->getCollection());
-            $meta = [
+            return $this->getPaginatedTomes($query, $perPage);
+        }
+
+        return $this->getAllTomes($query);
+    }
+
+    /**
+     * Get detailed tome by ID with nested relationships.
+     */
+    public function getTomeDetail(Tome $tome): array
+    {
+        $tome->load($this->getDetailRelationships());
+
+        return [
+            'data' => new TomeResource($tome),
+            'meta' => [], // Let ApiResponses trait handle timestamps
+        ];
+    }
+
+    /**
+     * Create a new tome with JSON field encoding.
+     *
+     * @throws JsonException
+     */
+    public function createTome(array $data): Tome
+    {
+        $processedData = $this->processJsonFields($data);
+        return Tome::create($processedData);
+    }
+
+    private function buildTomeQuery()
+    {
+        return Tome::with(['author', 'language', 'currentOwner'])->withCount('spells');
+    }
+
+    private function getPaginatedTomes($query, int $perPage): array
+    {
+        $paginator = $query->paginate($perPage);
+        $data = TomeListResource::collection($paginator->getCollection())->resolve();
+
+        return [
+            'data' => $data,
+            'meta' => [
                 'total' => $paginator->total(),
                 'count' => $paginator->count(),
                 'per_page' => $paginator->perPage(),
@@ -34,64 +72,48 @@ class TomeService
                 'last_page' => $paginator->lastPage(),
                 'next_page_url' => $paginator->nextPageUrl(),
                 'prev_page_url' => $paginator->previousPageUrl(),
-                'timestamp' => now()->toIso8601String(),
-            ];
-
-            return [
-                'data' => $data->resolve(),
-                'meta' => $meta,
-            ];
-        }
-
-        $tomes = $query->get();
-        $data = TomeListResource::collection($tomes);
-        $meta = [
-            'total' => $totalTomes,
-            'timestamp' => now()->toIso8601String(),
-        ];
-
-        return [
-            'data' => $data->resolve(),
-            'meta' => $meta,
+            ],
         ];
     }
 
-
-    /**
-     * Get detailed tome by ID with nested relationships.
-     *
-     * @param Tome $tome
-     * @return TomeResource|null
-     */
-    public function getTomeDetail(Tome $tome): TomeResource|null
+    private function getAllTomes($query): array
     {
-        $tome->load([
+        $tomes = $query->get();
+        $data = TomeListResource::collection($tomes)->resolve();
+
+        return [
+            'data' => $data,
+            'meta' => [
+                'total' => $tomes->count(),
+            ],
+        ];
+    }
+
+    private function getDetailRelationships(): array
+    {
+        return [
             'author',
             'language',
             'currentOwner',
             'lastKnownLocation',
             'spells',
-        ]);
-
-
-        return new TomeResource($tome);
+        ];
     }
 
     /**
      * @throws JsonException
      */
-    public function createTome(array $data): Tome
+    private function processJsonFields(array $data): array
     {
-        // Ensure JSON fields are encoded
-        if (isset($data['alternate_titles'])) {
-            $data['alternate_titles'] = json_encode($data['alternate_titles'], JSON_THROW_ON_ERROR);
+        $jsonFields = ['alternate_titles', 'notable_quotes'];
+
+        foreach ($jsonFields as $field) {
+            $value = data_get($data, $field);
+            if ($value !== null) {
+                data_set($data, $field, json_encode($value, JSON_THROW_ON_ERROR));
+            }
         }
 
-        if (isset($data['notable_quotes'])) {
-            $data['notable_quotes'] = json_encode($data['notable_quotes'], JSON_THROW_ON_ERROR);
-        }
-
-        return Tome::create($data);
+        return $data;
     }
-
 }

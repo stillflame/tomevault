@@ -19,6 +19,7 @@ class Tome extends Model
 {
     use HasFactory, UsesUuid;
 
+
     protected $fillable = [
         'title',
         'alternate_titles',

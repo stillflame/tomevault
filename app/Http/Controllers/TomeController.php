@@ -31,10 +31,11 @@ class TomeController
 
     public function show(Tome $tome): JsonResponse
     {
-        $result = $this->tomeService->getTomeDetail($tome);
 
-        return $this->success($result);
+        $result = $this->tomeService->getTomeDetail($tome);
+        return $this->success($result['data'], null, $result['meta']);
     }
+
 
     /**
      * @throws JsonException
