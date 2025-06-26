@@ -42,6 +42,7 @@ class CharacterSeeder extends Seeder
             ['name' => 'Melisandre', 'bio' => 'Red Priestess and sorceress from Game of Thrones.'],
             ['name' => 'Harry Dresden', 'bio' => 'Wizard detective from The Dresden Files.'],
             ['name' => 'Elminster', 'bio' => 'Legendary wizard from the Forgotten Realms.'],
+            ['name' => 'Jonathon John Horace Tobin', 'bio' => 'English supernatural researcher.'],
         ];
 
         foreach ($characters as $character) {
