@@ -2,19 +2,26 @@
 
 namespace App\Http\Resources;
 
+use App\Helpers\TomeHelper;
+use App\Models\Tome;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
+/**
+ * @property Tome $resource
+ */
 class TomeResource extends JsonResource
 {
+
     /**
      * Transform the resource into an array.
      *
-     * @param  Request  $request
+     * @param Request $request
      * @return array<string, mixed>
      */
     public function toArray($request): array
     {
+
         return [
             'id' => $this->id,
             'title' => $this->title,
@@ -39,7 +46,7 @@ class TomeResource extends JsonResource
 
             // Collection of nested spells as full objects
             'spells' => SpellResource::collection($this->whenLoaded('spells')),
-            'tome_detail_url' => url('/') . config('api.api_prefix').'/tomes/' . $this->id,
+            'tome_detail_url' => TomeHelper::resourceUrl($this->id),// url('/') . config('api.api_prefix').'/tomes/' . $this->id,
             'created_at' => $this->created_at,
             'updated_at' => $this->updated_at,
         ];
