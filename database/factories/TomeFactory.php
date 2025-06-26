@@ -4,6 +4,8 @@ namespace Database\Factories;
 
 // database/factories/TomeFactory.php
 
+use App\Enums\ArtifactType;
+use App\Enums\CoverMaterial;
 use App\Models\Character;
 use App\Models\Language;
 use App\Models\Location;
@@ -29,8 +31,8 @@ class TomeFactory extends Factory
             'current_owner_id' => Character::factory(),
             'last_known_location_id' => Location::factory(),
             'danger_level' => DangerLevel::Medium,
-            'artifact_type' => 'Grimoire',
-            'cover_material' => 'Leather',
+            'artifact_type' => ArtifactType::Grimoire,
+            'cover_material' => CoverMaterial::Bronze,
             'pages' => $this->faker->numberBetween(100, 500),
             'illustrated' => $this->faker->boolean(),
             'notable_quotes' => [$this->faker->sentence()],
