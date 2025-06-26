@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Http\Resources\TomeListResource;
 use App\Models\Tome;
 use App\Http\Resources\TomeResource;
+use JsonException;
 
 class TomeService
 {
@@ -15,8 +16,9 @@ class TomeService
      * @param int $paginateThreshold
      * @return array
      */
-    public function getTomesForIndex(int $perPage = 10, int $paginateThreshold = 10): array
+    public function getTomesForIndex(int|null $perPage = null, int $paginateThreshold = 10): array
     {
+        $perPage ??= 10;
         $totalTomes = Tome::count();
 
         $query = Tome::with(['author', 'language'])->withCount('spells');
@@ -39,19 +41,19 @@ class TomeService
                 'data' => $data->resolve(),
                 'meta' => $meta,
             ];
-        } else {
-            $tomes = $query->get();
-            $data = TomeListResource::collection($tomes);
-            $meta = [
-                'total' => $totalTomes,
-                'timestamp' => now()->toIso8601String(),
-            ];
-
-            return [
-                'data' => $data->resolve(),
-                'meta' => $meta,
-            ];
         }
+
+        $tomes = $query->get();
+        $data = TomeListResource::collection($tomes);
+        $meta = [
+            'total' => $totalTomes,
+            'timestamp' => now()->toIso8601String(),
+        ];
+
+        return [
+            'data' => $data->resolve(),
+            'meta' => $meta,
+        ];
     }
 
 
@@ -74,4 +76,22 @@ class TomeService
 
         return new TomeResource($tome);
     }
+
+    /**
+     * @throws JsonException
+     */
+    public function createTome(array $data): Tome
+    {
+        // Ensure JSON fields are encoded
+        if (isset($data['alternate_titles'])) {
+            $data['alternate_titles'] = json_encode($data['alternate_titles'], JSON_THROW_ON_ERROR);
+        }
+
+        if (isset($data['notable_quotes'])) {
+            $data['notable_quotes'] = json_encode($data['notable_quotes'], JSON_THROW_ON_ERROR);
+        }
+
+        return Tome::create($data);
+    }
+
 }
