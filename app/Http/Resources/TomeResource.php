@@ -46,11 +46,11 @@ class TomeResource extends JsonResource
             'illustrated' => $this->illustrated,
             'notable_quotes' => $this->notable_quotes,
 
-            // Collection of nested spells as full objects
-            'spells' => SpellResource::collection($this->whenLoaded('spells')),
-            'tome_detail_url' => TomeHelper::resourceUrl($this->id),// url('/') . config('api.api_prefix').'/tomes/' . $this->id,
-            'created_at' => $this->created_at,
-            'updated_at' => $this->updated_at,
+            // Collection of nested spells as full objects - fixed to handle null
+            'spells' => $this->whenLoaded('spells', fn() => SpellResource::collection($this->spells)),
+            'tome_detail_url' => TomeHelper::resourceUrl($this->id),
+            'created_at' => $this->created_at->toIso8601String(),
+            'updated_at' => $this->updated_at->toIso8601String(),
         ];
     }
 }
