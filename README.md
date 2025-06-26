@@ -59,7 +59,8 @@ Returns a paginated or full list of tomes with minimal fields.
       },
       "language_name": "Ancient Greek",
       "danger_level": "Severe",
-      "spell_count": 12
+      "spell_count": 12, 
+      "tome_detail_url": "http://tomevault.test/api/v1/tomes/uuid"
     }
   ],
   "meta": {
