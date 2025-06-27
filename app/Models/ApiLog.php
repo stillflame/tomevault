@@ -84,4 +84,16 @@ class ApiLog extends Model
     {
         return $query->where('created_at', '>=', now()->subHours($hours));
     }
+
+    public function getIpAddressAttribute($value): string|null
+    {
+        if (empty($value)) {
+            return null;
+        }
+
+        $ips = explode(',', $value);
+        return trim($ips[0]);
+    }
+
+
 }
