@@ -5,12 +5,15 @@ namespace App\Services;
 use App\Models\ApiLog;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 
 readonly class ApiLogSummaryService
 {
     public function __construct(
         private IpGeolocationService $geoService
-    ) {}
+    )
+    {
+    }
 
     public function getSummary(int $days): array
     {
@@ -58,7 +61,7 @@ readonly class ApiLogSummaryService
             ->selectRaw('MAX(response_time_ms) as max_response_time')
             ->selectRaw('SUM(CASE WHEN status_code >= 400 THEN 1 ELSE 0 END) as error_count')
             ->groupBy('endpoint', 'method')
-            ->orderByRaw('COUNT(*) DESC')
+            ->orderByDesc(DB::raw('COUNT(*)'))
             ->limit(20)
             ->get()
             ->map(static function ($item) {
@@ -116,7 +119,7 @@ readonly class ApiLogSummaryService
                 ->select('status_code')
                 ->selectRaw('COUNT(*) as count')
                 ->groupBy('status_code')
-                ->orderByRaw('COUNT(*) DESC')
+                ->orderByDesc(DB::raw('COUNT(*)'))
                 ->get()
                 ->mapWithKeys(static function ($item) {
                     return [$item->status_code => $item->count];
@@ -127,7 +130,7 @@ readonly class ApiLogSummaryService
                 ->select('endpoint')
                 ->selectRaw('COUNT(*) as error_count')
                 ->groupBy('endpoint')
-                ->orderByRaw('COUNT(*) DESC')
+                ->orderByDesc(DB::raw('COUNT(*)'))
                 ->limit(10)
                 ->get(),
 
@@ -136,7 +139,7 @@ readonly class ApiLogSummaryService
                 ->select('error_message')
                 ->selectRaw('COUNT(*) as count')
                 ->groupBy('error_message')
-                ->orderByRaw('COUNT(*) DESC')
+                ->orderByDesc(DB::raw('COUNT(*)'))
                 ->limit(10)
                 ->get(),
         ];
@@ -147,25 +150,25 @@ readonly class ApiLogSummaryService
         $baseQuery = clone $query;
         $driver = config('database.default');
 
-        $hourSql = $driver === 'mysql' ? 'HOUR(created_at) as hour' : "strftime('%H', created_at) as hour";
-        $dateSql = $driver === 'mysql' ? 'DATE(created_at) as date' : "strftime('%Y-%m-%d', created_at) as date";
+        $hourSql = $driver === 'mysql' ? 'HOUR(created_at)' : "CAST(strftime('%H', created_at) AS INTEGER)";
+        $dateSql = $driver === 'mysql' ? 'DATE(created_at)' : "strftime('%Y-%m-%d', created_at)";
 
         return [
             'requests_by_hour' => $baseQuery
-                ->selectRaw($hourSql)
+                ->selectRaw("{$hourSql} as hour")
                 ->selectRaw('COUNT(*) as count')
                 ->groupBy('hour')
-                ->orderByRaw($driver === 'mysql' ? 'HOUR(created_at)' : "strftime('%H', created_at)")
+                ->orderBy('hour')
                 ->get()
                 ->mapWithKeys(static function ($item) {
-                    return [$item->hour . ':00' => $item->count];
+                    return [sprintf('%02d:00', $item->hour) => $item->count];
                 }),
 
             'requests_by_day' => $baseQuery
-                ->selectRaw($dateSql)
+                ->selectRaw("{$dateSql} as date")
                 ->selectRaw('COUNT(*) as count')
                 ->groupBy('date')
-                ->orderByRaw($driver === 'mysql' ? 'DATE(created_at)' : "strftime('%Y-%m-%d', created_at)")
+                ->orderBy('date')
                 ->get()
                 ->mapWithKeys(static function ($item) {
                     return [$item->date => $item->count];
@@ -176,55 +179,37 @@ readonly class ApiLogSummaryService
                 ->selectRaw('COUNT(*) as count')
                 ->whereNotNull('user_agent')
                 ->groupBy('user_agent')
-                ->orderByRaw('COUNT(*) DESC')
+                ->orderByDesc(DB::raw('COUNT(*)'))
                 ->limit(10)
                 ->get(),
         ];
     }
 
-    private function calculateCacheHitRate($query): float
-    {
-        $baseQuery = clone $query;
-        $totalRequests = $baseQuery->count();
-
-        if ($totalRequests === 0) {
-            return 0;
-        }
-
-        $cacheHits = $baseQuery->where('cache_hit', true)->count();
-        return round(($cacheHits / $totalRequests) * 100, 2);
-    }
-
     private function getResponseTimePercentiles($query): array
     {
-        $baseQuery = clone $query;
-        $responseTimes = $baseQuery->pluck('response_time_ms')->sort()->values();
-
-        if ($responseTimes->isEmpty()) {
+        $times = $query->pluck('response_time_ms')->sort()->values();
+        if ($times->isEmpty()) {
             return ['p50' => 0, 'p90' => 0, 'p95' => 0, 'p99' => 0];
         }
 
-        $count = $responseTimes->count();
-
+        $count = $times->count();
         return [
-            'p50' => $responseTimes[(int)($count * 0.5)],
-            'p90' => $responseTimes[(int)($count * 0.9)],
-            'p95' => $responseTimes[(int)($count * 0.95)],
-            'p99' => $responseTimes[(int)($count * 0.99)],
+            'p50' => $times[(int)($count * 0.5)],
+            'p90' => $times[(int)($count * 0.9)],
+            'p95' => $times[(int)($count * 0.95)],
+            'p99' => $times[(int)($count * 0.99)],
         ];
     }
 
     private function getSlowestEndpoints($query): Collection
     {
-        $baseQuery = clone $query;
-
-        return $baseQuery
+        return $query
             ->select('endpoint', 'method')
             ->selectRaw('AVG(response_time_ms) as avg_response_time')
             ->selectRaw('MAX(response_time_ms) as max_response_time')
             ->selectRaw('COUNT(*) as request_count')
             ->groupBy('endpoint', 'method')
-            ->orderByRaw('AVG(response_time_ms) DESC')
+            ->orderByDesc(DB::raw('AVG(response_time_ms)'))
             ->limit(10)
             ->get()
             ->map(static function ($item) {
@@ -237,18 +222,38 @@ readonly class ApiLogSummaryService
             });
     }
 
+    private function calculateCacheHitRate($query): float
+    {
+        $total = $query->count();
+        if ($total === 0) {
+            return 0;
+        }
+        return round($query->where('cache_hit', true)->count() / $total * 100, 2);
+    }
+
+    private function getBotRequests($query): array
+    {
+        $patterns = ['bot', 'crawler', 'spider', 'curl', 'wget'];
+        $stats = [];
+        foreach ($patterns as $pattern) {
+            $count = (clone $query)->where('user_agent', 'like', "%{$pattern}%")->count();
+            if ($count > 0) {
+                $stats[$pattern] = $count;
+            }
+        }
+        return $stats;
+    }
+
     private function getSuspiciousIPs($query): Collection
     {
-        $baseQuery = clone $query;
-
-        return $baseQuery
+        return $query
             ->select('ip_address')
             ->selectRaw('COUNT(*) as request_count')
             ->selectRaw('SUM(CASE WHEN status_code >= 400 THEN 1 ELSE 0 END) as error_count')
             ->selectRaw('COUNT(DISTINCT endpoint) as unique_endpoints')
             ->groupBy('ip_address')
             ->havingRaw('request_count > 100 OR error_count > 20')
-            ->orderByRaw('COUNT(*) DESC')
+            ->orderByDesc(DB::raw('request_count'))
             ->limit(10)
             ->get()
             ->map(static function ($item) {
@@ -262,77 +267,53 @@ readonly class ApiLogSummaryService
             });
     }
 
-    private function getBotRequests($query): array
-    {
-        $baseQuery = clone $query;
-
-        $botPatterns = ['bot', 'crawler', 'spider', 'curl', 'wget'];
-
-        $botStats = [];
-        foreach ($botPatterns as $pattern) {
-            $count = (clone $baseQuery)->where('user_agent', 'like', "%{$pattern}%")->count();
-            if ($count > 0) {
-                $botStats[$pattern] = $count;
-            }
-        }
-
-        return $botStats;
-    }
-
     private function getGeographicStats($query): array
     {
-        $baseQuery = clone $query;
-
-        $ipCounts = $baseQuery
+        $ipCounts = (clone $query)
             ->select('ip_address')
             ->selectRaw('COUNT(*) as count')
             ->groupBy('ip_address')
             ->get()
-            ->mapWithKeys(static function ($item) {
-                return [$item->ip_address => $item->count];
-            })
+            ->mapWithKeys(static fn($item) => [$item->ip_address => $item->count])
             ->toArray();
 
-        $countryStats = $this->geoService->getCountryStats($ipCounts);
-        $topCities = $this->getTopCities($baseQuery);
+        $countries = $this->geoService->getCountryStats($ipCounts);
+        $cities = $this->getTopCities($query);
 
         return [
-            'countries' => array_slice($countryStats, 0, 10),
-            'cities' => $topCities,
-            'total_countries' => count($countryStats),
-            'most_active_country' => $countryStats[0] ?? null,
+            'countries' => array_slice($countries, 0, 10),
+            'cities' => $cities,
+            'total_countries' => count($countries),
+            'most_active_country' => $countries[0] ?? null,
         ];
     }
 
     private function getTopCities($query): array
     {
-        $baseQuery = clone $query;
-        $uniqueIps = $baseQuery->distinct('ip_address')->pluck('ip_address')->toArray();
-
+        $uniqueIps = (clone $query)->distinct('ip_address')->pluck('ip_address')->toArray();
         $cities = [];
+
         foreach ($uniqueIps as $ip) {
             $location = $this->geoService->getLocationData($ip);
             if ($location && $location['city'] !== 'Unknown') {
-                $cityKey = $location['city'] . ', ' . $location['country'];
+                $key = $location['city'] . ', ' . $location['country'];
 
-                if (!isset($cities[$cityKey])) {
-                    $cities[$cityKey] = [
+                if (!isset($cities[$key])) {
+                    $cities[$key] = [
                         'city' => $location['city'],
                         'country' => $location['country'],
                         'country_code' => $location['country_code'],
                         'request_count' => 0,
-                        'unique_ips' => 0
+                        'unique_ips' => 0,
                     ];
                 }
 
-                $ipRequests = (clone $baseQuery)->where('ip_address', $ip)->count();
-                $cities[$cityKey]['request_count'] += $ipRequests;
-                $cities[$cityKey]['unique_ips']++;
+                $cities[$key]['request_count'] += (clone $query)->where('ip_address', $ip)->count();
+                $cities[$key]['unique_ips']++;
             }
         }
 
         uasort($cities, static fn($a, $b) => $b['request_count'] <=> $a['request_count']);
-
         return array_slice(array_values($cities), 0, 10);
     }
 }
