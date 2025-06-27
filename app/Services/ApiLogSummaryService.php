@@ -60,7 +60,7 @@ readonly class ApiLogSummaryService
             ->selectRaw('MAX(response_time_ms) as max_response_time')
             ->selectRaw('SUM(CASE WHEN status_code >= 400 THEN 1 ELSE 0 END) as error_count')
             ->groupBy('endpoint', 'method')
-            ->orderBy('request_count', 'desc')
+            ->orderByRaw('COUNT(*) DESC')  // FIXED here
             ->limit(20)
             ->get()
             ->map(static function ($item) {
@@ -118,7 +118,7 @@ readonly class ApiLogSummaryService
                 ->select('status_code')
                 ->selectRaw('COUNT(*) as count')
                 ->groupBy('status_code')
-                ->orderBy('count', 'desc')
+                ->orderByRaw('COUNT(*) DESC')  // FIXED here
                 ->get()
                 ->mapWithKeys(static function ($item) {
                     return [$item->status_code => $item->count];
@@ -128,7 +128,7 @@ readonly class ApiLogSummaryService
                 ->select('endpoint')
                 ->selectRaw('COUNT(*) as error_count')
                 ->groupBy('endpoint')
-                ->orderBy('error_count', 'desc')
+                ->orderBy('error_count', 'desc')  // this should be fine, keep as is
                 ->limit(10)
                 ->get(),
             'most_common_errors' => $baseQuery
@@ -136,7 +136,7 @@ readonly class ApiLogSummaryService
                 ->select('error_message')
                 ->selectRaw('COUNT(*) as count')
                 ->groupBy('error_message')
-                ->orderBy('count', 'desc')
+                ->orderByRaw('COUNT(*) DESC')  // FIXED here
                 ->limit(10)
                 ->get(),
         ];
@@ -161,29 +161,32 @@ readonly class ApiLogSummaryService
                 ->selectRaw($hourSql)
                 ->selectRaw('COUNT(*) as count')
                 ->groupBy('hour')
-                ->orderBy('hour')
+                ->orderByRaw($driver === 'mysql' ? 'HOUR(created_at) ASC' : "strftime('%H', created_at) ASC")
                 ->get()
                 ->mapWithKeys(static function ($item) {
                     return [$item->hour . ':00' => $item->count];
                 }),
+
             'requests_by_day' => $baseQuery
                 ->selectRaw($dateSql)
                 ->selectRaw('COUNT(*) as count')
                 ->groupBy('date')
-                ->orderBy('date')
+                ->orderByRaw($driver === 'mysql' ? 'DATE(created_at) ASC' : "strftime('%Y-%m-%d', created_at) ASC")
                 ->get()
                 ->mapWithKeys(static function ($item) {
                     return [$item->date => $item->count];
                 }),
+
             'top_user_agents' => $baseQuery
                 ->select('user_agent')
                 ->selectRaw('COUNT(*) as count')
                 ->whereNotNull('user_agent')
                 ->groupBy('user_agent')
-                ->orderBy('count', 'desc')
+                ->orderByRaw('COUNT(*) DESC')
                 ->limit(10)
                 ->get(),
         ];
+
     }
 
     private function calculateCacheHitRate($query): float
@@ -252,7 +255,7 @@ readonly class ApiLogSummaryService
             ->selectRaw('COUNT(DISTINCT endpoint) as unique_endpoints')
             ->groupBy('ip_address')
             ->havingRaw('request_count > 100 OR error_count > 20')
-            ->orderBy('request_count', 'desc')
+            ->orderByRaw('COUNT(*) DESC')  // FIXED here
             ->limit(10)
             ->get()
             ->map(static function ($item) {
