@@ -56,6 +56,35 @@ return new class extends Migration
 
             // Composite index for geographic analysis (IP + time)
             $table->index(['ip_address', 'created_at', 'endpoint']); // For detailed IP analysis
+
+            // Add individual column indexes
+            $table->index('response_time_ms');
+            $table->index('cache_hit');
+
+            // Add composite indexes for performance analysis
+            $table->index(['created_at', 'response_time_ms'], 'api_logs_created_response_time_index');
+            $table->index(['endpoint', 'method', 'created_at'], 'api_logs_endpoint_method_created_index');
+
+            // Add security analysis indexes
+            $table->index(['created_at', 'status_code', 'ip_address'], 'api_logs_created_status_ip_index');
+            $table->index(['status_code', 'created_at'], 'api_logs_status_created_index');
+
+            // Add error analysis index (TEXT columns need key length in MySQL)
+            if (Schema::getConnection()->getDriverName() === 'mysql') {
+                // Use raw SQL for MySQL TEXT column indexing
+                DB::statement('ALTER TABLE api_logs ADD INDEX api_logs_created_error_index (created_at, error_message(255))');
+                DB::statement('ALTER TABLE api_logs ADD INDEX api_logs_created_user_agent_index (created_at, user_agent(255))');
+            } else {
+                // For other databases (SQLite, PostgreSQL)
+                $table->index(['created_at', 'error_message'], 'api_logs_created_error_index');
+                $table->index(['created_at', 'user_agent'], 'api_logs_created_user_agent_index');
+            }
+
+            // Add cache performance index
+            $table->index(['created_at', 'cache_hit'], 'api_logs_created_cache_index');
+
+            // Add composite index for geographic analysis
+            $table->index(['ip_address', 'created_at', 'endpoint'], 'api_logs_ip_created_endpoint_index');
         });
     }
 
