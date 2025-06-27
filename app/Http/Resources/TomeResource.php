@@ -45,7 +45,7 @@ class TomeResource extends JsonResource
             'cover_material' => $this->cover_material,
             'pages' => $this->pages,
             'illustrated' => $this->illustrated,
-            'notable_quotes' => $this->notable_quotes,
+            'notable_quotes' => collect($this->notable_quotes)->map(fn($quote) => trim($quote, '"'))->all(),
 
             // Collection of nested spells as full objects - fixed to handle null
             'spells' => $this->whenLoaded('spells', fn() => SpellResource::collection($this->spells)),
