@@ -42,10 +42,13 @@ class TomeController
      */
     public function store(StoreTomeRequest $request): JsonResponse
     {
-        $tome = $this->tomeService->createTome($request->validated());
+        $user = $request->user(); // get authenticated user via Sanctum
+
+        $tome = $this->tomeService->createTome($request->validated(), $user);
 
         return $this->success(new TomeResource($tome), 'Tome created', null, 201);
     }
+
 
 
 }

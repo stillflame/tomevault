@@ -5,6 +5,8 @@ namespace App\Services;
 use App\Http\Resources\TomeListResource;
 use App\Models\Tome;
 use App\Http\Resources\TomeResource;
+use Illuminate\Contracts\Auth\Authenticatable;
+use Illuminate\Database\Eloquent\Builder;
 use JsonException;
 
 class TomeService
@@ -15,7 +17,7 @@ class TomeService
     /**
      * Get paginated lightweight tomes with metadata for index.
      */
-    public function getTomesForIndex(?int $perPage = null, int $paginateThreshold = self::DEFAULT_PAGINATE_THRESHOLD): array
+    public function getTomesForIndex(int|null $perPage = null, int $paginateThreshold = self::DEFAULT_PAGINATE_THRESHOLD): array
     {
         $perPage ??= self::DEFAULT_PER_PAGE;
         $totalTomes = Tome::count();
@@ -46,13 +48,19 @@ class TomeService
      *
      * @throws JsonException
      */
-    public function createTome(array $data): Tome
+    public function createTome(array $data, Authenticatable|null $user = null): Tome
     {
         $processedData = $this->processJsonFields($data);
+
+        if ($user) {
+            $processedData['created_by'] = $user->getAuthIdentifier();
+        }
+
         return Tome::create($processedData);
     }
 
-    private function buildTomeQuery()
+
+    private function buildTomeQuery(): Builder
     {
         return Tome::with(['author', 'language', 'currentOwner'])->withCount('spells');
     }
