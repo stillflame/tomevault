@@ -14,7 +14,7 @@ return new class extends Migration
         Schema::create('characters', function (Blueprint $table) {
             $table->uuid('id')->primary();
             $table->string('name');
-            $table->string('slug')->nullable()->unique()->after('name');
+            $table->string('slug')->nullable()->unique();
             $table->text('bio')->nullable();
             $table->timestamps();
         });
