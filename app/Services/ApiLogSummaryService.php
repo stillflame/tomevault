@@ -11,9 +11,7 @@ readonly class ApiLogSummaryService
 {
     public function __construct(
         private IpGeolocationService $geoService
-    )
-    {
-    }
+    ) {}
 
     public function getSummary(int $days): array
     {
@@ -148,17 +146,27 @@ readonly class ApiLogSummaryService
     private function getTrafficPatterns($query): array
     {
         $baseQuery = clone $query;
-        $driver = config('database.default');
 
-        $hourSql = $driver === 'mysql' ? 'HOUR(created_at)' : "CAST(strftime('%H', created_at) AS INTEGER)";
-        $dateSql = $driver === 'mysql' ? 'DATE(created_at)' : "strftime('%Y-%m-%d', created_at)";
+        // Get the actual database driver name
+        $connection = DB::connection();
+        $driverName = $connection->getDriverName();
+
+        // Database-specific SQL for date/time extraction
+        if ($driverName === 'mysql') {
+            $hourSql = 'HOUR(created_at)';
+            $dateSql = 'DATE(created_at)';
+        } else {
+            // SQLite and other databases
+            $hourSql = "CAST(strftime('%H', created_at) AS INTEGER)";
+            $dateSql = "DATE(created_at)";
+        }
 
         return [
             'requests_by_hour' => $baseQuery
                 ->selectRaw("{$hourSql} as hour")
                 ->selectRaw('COUNT(*) as count')
-                ->groupBy('hour')
-                ->orderBy('hour')
+                ->groupBy(DB::raw($hourSql))
+                ->orderBy(DB::raw($hourSql))
                 ->get()
                 ->mapWithKeys(static function ($item) {
                     return [sprintf('%02d:00', $item->hour) => $item->count];
@@ -167,8 +175,8 @@ readonly class ApiLogSummaryService
             'requests_by_day' => $baseQuery
                 ->selectRaw("{$dateSql} as date")
                 ->selectRaw('COUNT(*) as count')
-                ->groupBy('date')
-                ->orderBy('date')
+                ->groupBy(DB::raw($dateSql))
+                ->orderBy(DB::raw($dateSql))
                 ->get()
                 ->mapWithKeys(static function ($item) {
                     return [$item->date => $item->count];
@@ -187,18 +195,37 @@ readonly class ApiLogSummaryService
 
     private function getResponseTimePercentiles($query): array
     {
-        $times = $query->pluck('response_time_ms')->sort()->values();
-        if ($times->isEmpty()) {
+        // More efficient percentile calculation using database queries
+        $connection = DB::connection();
+        $driverName = $connection->getDriverName();
+
+        $totalCount = $query->count();
+        if ($totalCount === 0) {
             return ['p50' => 0, 'p90' => 0, 'p95' => 0, 'p99' => 0];
         }
 
-        $count = $times->count();
-        return [
-            'p50' => $times[(int)($count * 0.5)],
-            'p90' => $times[(int)($count * 0.9)],
-            'p95' => $times[(int)($count * 0.95)],
-            'p99' => $times[(int)($count * 0.99)],
+        $percentiles = [];
+        $targets = [
+            'p50' => 0.5,
+            'p90' => 0.9,
+            'p95' => 0.95,
+            'p99' => 0.99
         ];
+
+        foreach ($targets as $name => $percentile) {
+            $offset = (int)($totalCount * $percentile);
+
+            $value = (clone $query)
+                ->select('response_time_ms')
+                ->orderBy('response_time_ms')
+                ->offset($offset)
+                ->limit(1)
+                ->value('response_time_ms');
+
+            $percentiles[$name] = $value ?? 0;
+        }
+
+        return $percentiles;
     }
 
     private function getSlowestEndpoints($query): Collection
@@ -228,19 +255,35 @@ readonly class ApiLogSummaryService
         if ($total === 0) {
             return 0;
         }
-        return round($query->where('cache_hit', true)->count() / $total * 100, 2);
+
+        // Handle boolean values for different databases
+        $connection = DB::connection();
+        $driverName = $connection->getDriverName();
+
+        if ($driverName === 'mysql') {
+            $cacheHits = $query->where('cache_hit', true)->count();
+        } else {
+            // SQLite stores booleans as integers (1/0)
+            $cacheHits = $query->where('cache_hit', 1)->count();
+        }
+
+        return round($cacheHits / $total * 100, 2);
     }
 
     private function getBotRequests($query): array
     {
         $patterns = ['bot', 'crawler', 'spider', 'curl', 'wget'];
         $stats = [];
+
         foreach ($patterns as $pattern) {
-            $count = (clone $query)->where('user_agent', 'like', "%{$pattern}%")->count();
+            $count = (clone $query)
+                ->where('user_agent', 'like', "%{$pattern}%")
+                ->count();
             if ($count > 0) {
                 $stats[$pattern] = $count;
             }
         }
+
         return $stats;
     }
 
@@ -274,7 +317,7 @@ readonly class ApiLogSummaryService
             ->selectRaw('COUNT(*) as count')
             ->groupBy('ip_address')
             ->get()
-            ->mapWithKeys(static fn($item) => [$item->ip_address => $item->count])
+            ->mapWithKeys(static fn ($item) => [$item->ip_address => $item->count])
             ->toArray();
 
         $countries = $this->geoService->getCountryStats($ipCounts);
@@ -290,7 +333,11 @@ readonly class ApiLogSummaryService
 
     private function getTopCities($query): array
     {
-        $uniqueIps = (clone $query)->distinct('ip_address')->pluck('ip_address')->toArray();
+        $uniqueIps = (clone $query)
+            ->distinct('ip_address')
+            ->pluck('ip_address')
+            ->toArray();
+
         $cities = [];
 
         foreach ($uniqueIps as $ip) {
@@ -308,7 +355,9 @@ readonly class ApiLogSummaryService
                     ];
                 }
 
-                $cities[$key]['request_count'] += (clone $query)->where('ip_address', $ip)->count();
+                $cities[$key]['request_count'] += (clone $query)
+                    ->where('ip_address', $ip)
+                    ->count();
                 $cities[$key]['unique_ips']++;
             }
         }
