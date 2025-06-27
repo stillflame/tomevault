@@ -12,8 +12,8 @@ Route::middleware('auth:sanctum')->group(function () {
 });
 
 
-Route::prefix('v1')->group(function () {
-    Route::apiResource('tomes', TomeController::class);
-//    Route::apiResource('spells', SpellController::class);
-//    Route::apiResource('characters', CharacterController::class);
-});
+//Route::prefix('v1')->group(function () {
+//    Route::apiResource('tomes', TomeController::class);
+////    Route::apiResource('spells', SpellController::class);
+////    Route::apiResource('characters', CharacterController::class);
+//});
