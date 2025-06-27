@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 /**
@@ -13,7 +14,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  */
 class ApiLog extends Model
 {
-    use HasUuids;
+    use HasUuids,HasFactory;
 
     protected $fillable = [
         'request_id',
@@ -46,6 +47,7 @@ class ApiLog extends Model
         'cache_hit' => 'boolean',
         'response_time_ms' => 'decimal:2',
     ];
+
 
     public function user(): BelongsTo
     {
