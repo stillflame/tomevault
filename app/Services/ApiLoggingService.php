@@ -86,7 +86,7 @@ class ApiLoggingService
     {
         // Check explicit config first
         // temporarily disable queue
-        return false;
+        return true;
         return config('logging.use_queue') ?? app()->environment(['production', 'staging']);
     }
 

@@ -36,5 +36,6 @@ $app = Application::configure(basePath: dirname(__DIR__))
 
 // ✅ Register custom provider before returning the app
 $app->register(App\Providers\RouteBindingServiceProvider::class);
+$app->register(App\Providers\AppServiceProvider::class); // Add this line
 
 return $app;

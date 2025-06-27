@@ -77,17 +77,22 @@ class ProcessApiLogJob implements ShouldQueue
         ApiLog::create([
             'request_id' => $logData['request_id'],
             'method' => $logData['method'],
+            'url' => $logData['url'],
             'endpoint' => $logData['endpoint'],
             'status_code' => $logData['status_code'],
             'response_time_ms' => $logData['response_time_ms'],
             'ip_address' => $logData['ip_address'],
             'user_id' => $logData['user_id'],
+            'request_headers' => $logData['request_headers'], // ✅ ADDED
             'user_type' => $logData['user_type'],
             'user_agent' => $logData['user_agent'],
             'request_data' => $logData['request_data'],
             'response_data' => $logData['response_data'],
+            'response_size' => $logData['response_size'], // ✅ ADDED
             'error_message' => $logData['error_message'],
+            'error_context' => $logData['error_context'], // ✅ ADDED
             'log_level' => $logData['log_level'],
+            'metadata' => $logData['metadata'], // ✅ ADDED
             'created_at' => now(),
         ]);
     }

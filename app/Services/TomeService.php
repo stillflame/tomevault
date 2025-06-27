@@ -7,6 +7,8 @@ use App\Models\Tome;
 use App\Http\Resources\TomeResource;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 use JsonException;
 
 class TomeService
@@ -20,7 +22,24 @@ class TomeService
     public function getTomesForIndex(int|null $perPage = null, int $paginateThreshold = self::DEFAULT_PAGINATE_THRESHOLD): array
     {
         $perPage ??= self::DEFAULT_PER_PAGE;
+
+        // Cache the count for 5 minutes if data is relatively static
+//        $totalTomes = Cache::remember('tomes_total_count', 300, function () {
+//        return Tome::count();
+//        });
+
         $totalTomes = Tome::count();
+
+        // Early return for empty data - avoid expensive query building
+        if ($totalTomes === 0) {
+            return [
+                'data' => [],
+                'meta' => [
+                    'total' => 0,
+                ],
+            ];
+        }
+
         $query = $this->buildTomeQuery();
 
         if ($totalTomes > $paginateThreshold) {
@@ -59,15 +78,42 @@ class TomeService
         return Tome::create($processedData);
     }
 
-
     private function buildTomeQuery(): Builder
     {
-        return Tome::with(['author', 'language', 'currentOwner'])->withCount('spells');
+        return Tome::select([
+            'id', 'slug', 'title', 'origin', 'artifact_type',
+            'author_id', 'language_id', 'current_owner_id',
+            'danger_level', 'cursed', 'sentient', 'pages',
+            'illustrated', 'created_at', 'updated_at'
+        ])
+            ->with([
+                'author:id,name',
+                'language:id,name',
+                'currentOwner:id,name'
+            ])
+            ->withCount('spells');
     }
 
     private function getPaginatedTomes($query, int $perPage): array
     {
         $paginator = $query->paginate($perPage);
+
+        // Skip resource transformation if empty
+        if ($paginator->count() === 0) {
+            return [
+                'data' => [],
+                'meta' => [
+                    'total' => $paginator->total(),
+                    'count' => 0,
+                    'per_page' => $paginator->perPage(),
+                    'current_page' => $paginator->currentPage(),
+                    'last_page' => $paginator->lastPage(),
+                    'next_page_url' => null,
+                    'prev_page_url' => null,
+                ],
+            ];
+        }
+
         $data = TomeListResource::collection($paginator->getCollection())->resolve();
 
         return [
@@ -86,14 +132,27 @@ class TomeService
 
     private function getAllTomes($query): array
     {
+        $queryStart = microtime(true);
         $tomes = $query->get();
+        $queryTime = (microtime(true) - $queryStart) * 1000;
+
+        if ($tomes->isEmpty()) {
+            return ['data' => [], 'meta' => ['total' => 0]];
+        }
+
+        $resourceStart = microtime(true);
         $data = TomeListResource::collection($tomes)->resolve();
+        $resourceTime = (microtime(true) - $resourceStart) * 1000;
+
+        Log::info('TomeService Timing', [
+            'query_time_ms' => round($queryTime, 2),
+            'resource_time_ms' => round($resourceTime, 2),
+            'record_count' => $tomes->count()
+        ]);
 
         return [
             'data' => $data,
-            'meta' => [
-                'total' => $tomes->count(),
-            ],
+            'meta' => ['total' => $tomes->count()],
         ];
     }
 

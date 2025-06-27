@@ -14,27 +14,33 @@ class TomeListResource extends JsonResource
             'title' => $this->title,
             'origin' => $this->origin,
             'artifact_type' => $this->artifact_type,
-            'author' => [
 
+            // ✅ Fixed: Only include author if relationship is loaded and exists
+            'author' => $this->when($this->relationLoaded('author') && $this->author, [
                 'name' => $this->author->name,
-            ],
-            'language_name' => $this->language ? $this->language->name : null,
+            ]),
+
+            // ✅ Fixed: Safe null checking for language
+            'language_name' => $this->when($this->relationLoaded('language') && $this->language, $this->language->name),
+
             'danger_level' => $this->danger_level->value,
             'cursed' => $this->cursed,
             'sentient' => $this->sentient,
             'pages' => $this->pages,
             'illustrated' => $this->illustrated,
 
-            // Current owner info (useful to know availability)
-            'current_owner' => $this->when($this->currentOwner, [
+            // ✅ Fixed: Safe checking for current owner
+            'current_owner' => $this->when(
+                $this->relationLoaded('currentOwner') && $this->currentOwner,
+                fn() => [
+                    'name' => $this->currentOwner->name,
+                ]
+            ),
 
-                'name' => $this->currentOwner?->name,
-            ]),
-
-            // ONLY include spell_count key IF spells_count > 0
+            // ✅ Fixed: Use proper count attribute name
             'spell_count' => $this->when($this->spells_count > 0, $this->spells_count),
-            'tome_detail_url' => url('/') . config('api.api_prefix') . '/tomes/' . $this->id,
 
+            'tome_detail_url' => url('/') . config('api.api_prefix') . '/tomes/' . $this->id,
         ];
     }
 }
