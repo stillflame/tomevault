@@ -14,7 +14,7 @@ return new class extends Migration
         Schema::create('tomes', function (Blueprint $table) {
             $table->uuid('id')->primary();
             $table->string('title');
-            $table->string('slug')->nullable()->unique()->after('title');
+            $table->string('slug')->nullable()->unique();
             $table->json('alternate_titles')->nullable();
             $table->string('origin')->nullable();
 
