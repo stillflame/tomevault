@@ -10,6 +10,7 @@ class TomeListResource extends JsonResource
     {
         return [
             'id' => $this->id,
+            'slug' => $this->slug,
             'title' => $this->title,
             'origin' => $this->origin,
             'artifact_type' => $this->artifact_type,

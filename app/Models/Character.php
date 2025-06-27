@@ -7,6 +7,8 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Spatie\Sluggable\HasSlug;
+use Spatie\Sluggable\SlugOptions;
 
 /**
  * @method static Model|static create(array $attributes = [])
@@ -15,9 +17,9 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  */
 class Character extends Model
 {
-    use HasFactory, UsesUuid;
+    use HasFactory, UsesUuid, HasSlug;
 
-    protected $fillable = ['name', 'bio'];
+    protected $fillable = ['name', 'bio', 'slug'];
 
     public function authoredTomes(): HasMany
     {
@@ -27,5 +29,13 @@ class Character extends Model
     public function ownedTomes(): HasMany
     {
         return $this->hasMany(Tome::class, 'current_owner_id');
+    }
+
+    public function getSlugOptions(): SlugOptions
+    {
+        return SlugOptions::create()
+            ->generateSlugsFrom('name')
+            ->saveSlugsTo('slug');
+
     }
 }

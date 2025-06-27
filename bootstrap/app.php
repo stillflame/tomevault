@@ -7,7 +7,7 @@ use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\JsonResponse;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
-return Application::configure(basePath: dirname(__DIR__))
+$app = Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
         web: __DIR__ . '/../routes/web.php',
         api: __DIR__ . '/../routes/api.php',
@@ -16,12 +16,9 @@ return Application::configure(basePath: dirname(__DIR__))
         apiPrefix: 'api/v1',
     )
     ->withMiddleware(static function (Middleware $middleware): void {
-
-//        // apply only to API routes
         $middleware->appendToGroup('api', [
             ApiLoggingMiddleware::class,
         ]);
-
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->render(static function (NotFoundHttpException $e, $request) {
@@ -32,8 +29,12 @@ return Application::configure(basePath: dirname(__DIR__))
                 ], 404);
             }
 
-            // fallback to default
             return null;
         });
+    })
+    ->create();
 
-    })->create();
+// ✅ Register custom provider before returning the app
+$app->register(App\Providers\RouteBindingServiceProvider::class);
+
+return $app;

@@ -26,6 +26,7 @@ class TomeResource extends JsonResource
 
         return [
             'id' => $this->id,
+            'slug' => $this->slug,
             'title' => $this->title,
             'alternate_titles' => $this->alternate_titles,
             'origin' => $this->origin,
