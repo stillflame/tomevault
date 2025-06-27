@@ -3,6 +3,7 @@
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\DB;
 
 return new class extends Migration
 {
@@ -21,11 +22,16 @@ return new class extends Migration
             $table->index(['created_at', 'status_code', 'ip_address'], 'api_logs_created_status_ip_index');
             $table->index(['status_code', 'created_at'], 'api_logs_status_created_index');
 
-            // Add error analysis index
-            $table->index(['created_at', 'error_message'], 'api_logs_created_error_index');
-
-            // Add traffic pattern indexes
-            $table->index(['created_at', 'user_agent'], 'api_logs_created_user_agent_index');
+            // Add error analysis index (TEXT columns need key length in MySQL)
+            if (Schema::getConnection()->getDriverName() === 'mysql') {
+                // Use raw SQL for MySQL TEXT column indexing
+                DB::statement('ALTER TABLE api_logs ADD INDEX api_logs_created_error_index (created_at, error_message(255))');
+                DB::statement('ALTER TABLE api_logs ADD INDEX api_logs_created_user_agent_index (created_at, user_agent(255))');
+            } else {
+                // For other databases (SQLite, PostgreSQL)
+                $table->index(['created_at', 'error_message'], 'api_logs_created_error_index');
+                $table->index(['created_at', 'user_agent'], 'api_logs_created_user_agent_index');
+            }
 
             // Add cache performance index
             $table->index(['created_at', 'cache_hit'], 'api_logs_created_cache_index');
@@ -47,10 +53,19 @@ return new class extends Migration
             $table->dropIndex('api_logs_endpoint_method_created_index');
             $table->dropIndex('api_logs_created_status_ip_index');
             $table->dropIndex('api_logs_status_created_index');
-            $table->dropIndex('api_logs_created_error_index');
-            $table->dropIndex('api_logs_created_user_agent_index');
             $table->dropIndex('api_logs_created_cache_index');
             $table->dropIndex('api_logs_ip_created_endpoint_index');
         });
+
+        // Drop TEXT column indexes using raw SQL for MySQL
+        if (Schema::getConnection()->getDriverName() === 'mysql') {
+            DB::statement('ALTER TABLE api_logs DROP INDEX api_logs_created_error_index');
+            DB::statement('ALTER TABLE api_logs DROP INDEX api_logs_created_user_agent_index');
+        } else {
+            Schema::table('api_logs', function (Blueprint $table) {
+                $table->dropIndex('api_logs_created_error_index');
+                $table->dropIndex('api_logs_created_user_agent_index');
+            });
+        }
     }
 };
