@@ -1,6 +1,5 @@
 <?php
 
-
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
@@ -15,6 +14,7 @@ return new class extends Migration
         Schema::create('tomes', function (Blueprint $table) {
             $table->uuid('id')->primary();
             $table->string('title');
+            $table->string('slug')->nullable()->unique()->after('title');
             $table->json('alternate_titles')->nullable();
             $table->string('origin')->nullable();
 
@@ -22,6 +22,7 @@ return new class extends Migration
             $table->foreignUuid('language_id')->nullable()->constrained()->nullOnDelete();
             $table->foreignUuid('current_owner_id')->nullable()->constrained('characters')->nullOnDelete();
             $table->foreignUuid('last_known_location_id')->nullable()->constrained('locations')->nullOnDelete();
+            $table->foreignUuid('created_by')->nullable()->constrained('users')->nullOnDelete();
 
             $table->text('contents_summary')->nullable();
             $table->boolean('cursed')->default(false);
