@@ -2,11 +2,15 @@
 
 namespace App\Services;
 
+use App\Jobs\ProcessApiLogJob;
 use App\Models\ApiLog;
+use DB;
+use Exception;
 use Illuminate\Http\Request;
-use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
+use JsonException;
+use Throwable;
 
 class ApiLoggingService
 {
@@ -19,7 +23,7 @@ class ApiLoggingService
         $this->startTime = microtime(true);
     }
 
-    public function logRequest(Request $request, $response = null, ?\Throwable $exception = null): void
+    public function logRequest(Request $request, $response = null, Throwable|null $exception = null): void
     {
         try {
             $responseTime = $this->getResponseTime();
@@ -45,28 +49,92 @@ class ApiLoggingService
                 'log_level' => $logLevel,
                 'error_message' => $exception?->getMessage(),
                 'error_context' => $exception ? $this->buildErrorContext($exception) : null,
-                'metadata' => $this->buildMetadata($request, $response),
+                'metadata' => $this->buildMetadata($request),
             ];
 
-            // Log to database
-            $this->logToDatabase($logData);
+            // Add security analysis to log data
+            $logData['security_analysis'] = [
+                'sql_injection_detected' => $this->detectSqlInjection($request),
+                'unusual_patterns' => $this->detectUnusualPatterns($request),
+            ];
+            if ($this->shouldUseQueue()) {
+                // Queue for production/staging - non-blocking
+                $this->queueLogData($logData, $logLevel, $exception);
+            } else {
+                // Immediate logging for local/testing - easier debugging
+                $this->processLogDataImmediate($logData, $logLevel, $exception);
+            }
 
-            // Log to Laravel log files
-            $this->logToFile($logData, $logLevel, $exception);
+            // Always log critical errors immediately (even in production)
+            if ($exception && $statusCode >= 500) {
+                $this->logCriticalErrorImmediate($request, $exception);
+            }
 
-            // Log security events
-            $this->logSecurityEvents($request, $statusCode);
-
-            // Log performance issues
-            $this->logPerformanceIssues($responseTime, $request->path());
-
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             // Fail silently but log the logging error
             Log::error('Failed to log API request', [
                 'error' => $e->getMessage(),
                 'request_id' => $this->requestId,
             ]);
         }
+    }
+
+    /**
+     * Determine if we should use queue based on environment and config
+     */
+    private function shouldUseQueue(): bool
+    {
+        // Check explicit config first
+        // temporarily disable queue
+        return false;
+        return config('logging.use_queue') ?? app()->environment(['production', 'staging']);
+    }
+
+    /**
+     * Queue log data for processing (production mode)
+     */
+    private function queueLogData(array $logData, string $logLevel, Throwable|null $exception): void
+    {
+        // Dispatch job to queue with delay to batch writes
+        ProcessApiLogJob::dispatch($logData, $logLevel, $exception)
+            ->onQueue('logging')
+            ->delay(now()->addSeconds(2)); // Small delay for batching
+    }
+
+    /**
+     * Process log data immediately (development mode)
+     */
+    private function processLogDataImmediate(array $logData, string $logLevel, Throwable|null $exception): void
+    {
+        // Log to database
+        $this->logToDatabase($logData);
+
+        // Log to Laravel log files
+        $this->logToFile($logData, $logLevel, $exception);
+
+        // Log security events
+        $this->logSecurityEvents($logData);
+
+        // Log performance issues
+        $this->logPerformanceIssues($logData['response_time_ms'], $logData['endpoint']);
+    }
+
+    /**
+     * Always log critical errors immediately for faster alerting
+     */
+    private function logCriticalErrorImmediate(Request $request, Throwable $exception): void
+    {
+        Log::error('Critical API Error - Immediate Alert', [
+            'request_id' => $this->requestId,
+            'endpoint' => $request->path(),
+            'method' => $request->method(),
+            'error' => $exception->getMessage(),
+            'file' => $exception->getFile(),
+            'line' => $exception->getLine(),
+            'ip' => $this->getClientIp($request),
+            'user_id' => auth()->id(),
+            'environment' => app()->environment(),
+        ]);
     }
 
     private function logToDatabase(array $logData): void
@@ -85,7 +153,7 @@ class ApiLoggingService
                 //     ApiLog::create($logData);
                 // }
             }
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             // If DB logging fails, at least log to file
             Log::error('Database logging failed', [
                 'error' => $e->getMessage(),
@@ -94,7 +162,7 @@ class ApiLoggingService
         }
     }
 
-    private function logToFile(array $logData, string $level, ?\Throwable $exception): void
+    private function logToFile(array $logData, string $level, Throwable|null $exception): void
     {
         $context = [
             'request_id' => $logData['request_id'],
@@ -117,49 +185,80 @@ class ApiLoggingService
             // Log to multiple channels
             Log::error('API Error', $errorContext);
 
-            // Also send to Logtail if configured
-            if (config('logging.channels.logtail.handler_with.token')) {
-                Log::channel('logtail')->error('API Error', $errorContext);
-            }
+
         } else {
             // Log successful requests
-            Log::{$level}('API Request', $context);
+            Log::channel('api')->{$level}('API Request', $context);
 
-            // Also send to Logtail if configured
-            if (config('logging.channels.logtail.handler_with.token')) {
-                Log::channel('logtail')->{$level}('API Request', $context);
-            }
         }
     }
 
-    private function logSecurityEvents(Request $request, int $statusCode): void
+    private function logSecurityEvents(array $logData): void
     {
+        $request_path = $logData['endpoint'];
+        $statusCode = $logData['status_code'];
+        $ip = $logData['ip_address'];
+        $userAgent = $logData['user_agent'];
+
         // Failed authentication
         if ($statusCode === 401) {
             Log::warning('Failed authentication attempt', [
-                'ip' => $this->getClientIp($request),
-                'endpoint' => $request->path(),
-                'user_agent' => $request->userAgent(),
+                'ip' => $ip,
+                'endpoint' => $request_path,
+                'user_agent' => $userAgent,
                 'request_id' => $this->requestId,
             ]);
         }
 
-        // Potential SQL injection
-        if ($this->detectSqlInjection($request)) {
+        // Log suspicious patterns
+        if ($statusCode === 401 || $statusCode === 403) {
+            Log::warning('Security: Unauthorized access attempt', [
+                'request_id' => $this->requestId,
+                'endpoint' => $request_path,
+                'method' => $logData['method'],
+                'ip' => $ip,
+                'user_agent' => $userAgent,
+                'status_code' => $statusCode,
+            ]);
+        }
+
+        // Log potential attacks
+        if (!$logData['user_id'] && str_contains(strtolower($request_path), 'admin')) {
+            Log::warning('Security: Unauthenticated admin access attempt', [
+                'request_id' => $this->requestId,
+                'endpoint' => $request_path,
+                'ip' => $ip,
+                'user_agent' => $userAgent,
+            ]);
+        }
+
+        // Log unusual user agents
+        if (empty($userAgent) || str_contains(strtolower($userAgent), 'bot')) {
+            Log::info('Security: Bot or empty user agent detected', [
+                'request_id' => $this->requestId,
+                'endpoint' => $request_path,
+                'ip' => $ip,
+                'user_agent' => $userAgent,
+            ]);
+        }
+
+        // Check security analysis from log data
+        $securityAnalysis = $logData['security_analysis'] ?? [];
+
+        if ($securityAnalysis['sql_injection_detected'] ?? false) {
             Log::critical('Potential SQL injection attempt', [
-                'ip' => $this->getClientIp($request),
-                'endpoint' => $request->path(),
-                'request_data' => $request->all(),
+                'ip' => $ip,
+                'endpoint' => $request_path,
+                'request_data' => $logData['request_data'],
                 'request_id' => $this->requestId,
             ]);
         }
 
-        // Unusual request patterns
-        if ($this->detectUnusualPatterns($request)) {
+        if ($securityAnalysis['unusual_patterns'] ?? false) {
             Log::warning('Unusual request pattern detected', [
-                'ip' => $this->getClientIp($request),
-                'endpoint' => $request->path(),
-                'user_agent' => $request->userAgent(),
+                'ip' => $ip,
+                'endpoint' => $request_path,
+                'user_agent' => $userAgent,
                 'request_id' => $this->requestId,
             ]);
         }
@@ -205,11 +304,14 @@ class ApiLoggingService
         return round((microtime(true) - $this->startTime) * 1000, 2);
     }
 
-    private function determineLogLevel(int $statusCode, float $responseTime, ?\Throwable $exception): string
+    private function determineLogLevel(int $statusCode, float $responseTime, Throwable|null $exception): string
     {
-        if ($exception || $statusCode >= 500) return 'error';
-        if ($statusCode >= 400) return 'warning';
-        if ($responseTime > 5000) return 'warning';
+        if ($exception || $statusCode >= 500) {
+            return 'error';
+        }
+        if ($statusCode >= 400 || $responseTime > 5000) {
+            return 'warning';
+        }
         return 'info';
     }
 
@@ -233,9 +335,11 @@ class ApiLoggingService
         return $headers;
     }
 
-    private function sanitizeRequestData(array $data): ?array
+    private function sanitizeRequestData(array $data): array|null
     {
-        if (empty($data)) return null;
+        if (empty($data)) {
+            return null;
+        }
 
         $sensitive = ['password', 'token', 'secret', 'key', 'api_key'];
 
@@ -248,7 +352,10 @@ class ApiLoggingService
         return $data;
     }
 
-    private function sanitizeResponseData($response): ?array
+    /**
+     * @throws JsonException
+     */
+    private function sanitizeResponseData($response): array|null
     {
         if (!$response || !method_exists($response, 'getContent')) {
             return null;
@@ -262,11 +369,11 @@ class ApiLoggingService
         }
 
         // Try to decode JSON response
-        $decoded = json_decode($content, true);
+        $decoded = json_decode($content, true, 512, JSON_THROW_ON_ERROR);
         return $decoded ?? ['raw' => $content];
     }
 
-    private function buildErrorContext(\Throwable $exception): array
+    private function buildErrorContext(Throwable $exception): array
     {
         return [
             'file' => $exception->getFile(),
@@ -276,17 +383,20 @@ class ApiLoggingService
         ];
     }
 
-    private function buildMetadata(Request $request, $response): array
+    private function buildMetadata(Request $request): array
     {
         return [
             'memory_usage' => memory_get_peak_usage(true),
-            'query_count' => \DB::getQueryLog() ? count(\DB::getQueryLog()) : null,
+            'query_count' => DB::getQueryLog() ? count(DB::getQueryLog()) : null,
             'referer' => $request->header('Referer'),
             'locale' => app()->getLocale(),
             'timezone' => config('app.timezone'),
         ];
     }
 
+    /**
+     * @throws JsonException
+     */
     private function detectSqlInjection(Request $request): bool
     {
         $patterns = [
@@ -298,7 +408,7 @@ class ApiLoggingService
             '/exec\s*\(/i',
         ];
 
-        $input = json_encode($request->all());
+        $input = json_encode($request->all(), JSON_THROW_ON_ERROR);
 
         foreach ($patterns as $pattern) {
             if (preg_match($pattern, $input)) {

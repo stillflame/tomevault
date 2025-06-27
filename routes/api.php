@@ -8,7 +8,9 @@ Route::apiResource('tomes', TomeController::class)->only(['index', 'show']); // 
 
 Route::middleware('auth:sanctum')->group(function () {
     Route::apiResource('tomes', TomeController::class)->except(['index', 'show']); // protected routes
+    Route::get('/logs/summary', [App\Http\Controllers\ApiLogSummaryController::class, 'summary']);
 });
+
 
 Route::prefix('v1')->group(function () {
     Route::apiResource('tomes', TomeController::class);

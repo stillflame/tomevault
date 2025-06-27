@@ -17,7 +17,7 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(static function (Middleware $middleware): void {
 
-        // apply only to API routes
+//        // apply only to API routes
         $middleware->appendToGroup('api', [
             ApiLoggingMiddleware::class,
         ]);
