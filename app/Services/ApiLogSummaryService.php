@@ -10,9 +10,7 @@ readonly class ApiLogSummaryService
 {
     public function __construct(
         private IpGeolocationService $geoService
-    )
-    {
-    }
+    ) {}
 
     public function getSummary(int $days): array
     {
@@ -31,7 +29,7 @@ readonly class ApiLogSummaryService
             'security' => $this->getSecurityStats($baseQuery),
             'errors' => $this->getErrorStats($baseQuery),
             'traffic_patterns' => $this->getTrafficPatterns($baseQuery),
-            'geographic' => $this->getGeographicStats($baseQuery), // NEW!
+            'geographic' => $this->getGeographicStats($baseQuery),
         ];
     }
 
@@ -41,8 +39,8 @@ readonly class ApiLogSummaryService
 
         return [
             'total_requests' => $baseQuery->count(),
-            'unique_ips' => $baseQuery->distinct('ip_address')->count(),
-            'unique_users' => $baseQuery->whereNotNull('user_id')->distinct('user_id')->count(),
+            'unique_ips' => $baseQuery->distinct('ip_address')->count('ip_address'),
+            'unique_users' => $baseQuery->whereNotNull('user_id')->distinct('user_id')->count('user_id'),
             'average_response_time_ms' => round($baseQuery->avg('response_time_ms'), 2),
             'total_data_transferred_mb' => round($baseQuery->sum('response_size') / (1024 * 1024), 2),
             'cache_hit_rate' => $this->calculateCacheHitRate($baseQuery),
@@ -60,7 +58,7 @@ readonly class ApiLogSummaryService
             ->selectRaw('MAX(response_time_ms) as max_response_time')
             ->selectRaw('SUM(CASE WHEN status_code >= 400 THEN 1 ELSE 0 END) as error_count')
             ->groupBy('endpoint', 'method')
-            ->orderByRaw('COUNT(*) DESC')  // FIXED here
+            ->orderByRaw('COUNT(*) DESC')
             ->limit(20)
             ->get()
             ->map(static function ($item) {
@@ -118,25 +116,27 @@ readonly class ApiLogSummaryService
                 ->select('status_code')
                 ->selectRaw('COUNT(*) as count')
                 ->groupBy('status_code')
-                ->orderByRaw('COUNT(*) DESC')  // FIXED here
+                ->orderByRaw('COUNT(*) DESC')
                 ->get()
                 ->mapWithKeys(static function ($item) {
                     return [$item->status_code => $item->count];
                 }),
+
             'error_rate_by_endpoint' => $baseQuery
                 ->where('status_code', '>=', 400)
                 ->select('endpoint')
                 ->selectRaw('COUNT(*) as error_count')
                 ->groupBy('endpoint')
-                ->orderBy('error_count', 'desc')  // this should be fine, keep as is
+                ->orderByRaw('COUNT(*) DESC')
                 ->limit(10)
                 ->get(),
+
             'most_common_errors' => $baseQuery
                 ->whereNotNull('error_message')
                 ->select('error_message')
                 ->selectRaw('COUNT(*) as count')
                 ->groupBy('error_message')
-                ->orderByRaw('COUNT(*) DESC')  // FIXED here
+                ->orderByRaw('COUNT(*) DESC')
                 ->limit(10)
                 ->get(),
         ];
@@ -147,21 +147,15 @@ readonly class ApiLogSummaryService
         $baseQuery = clone $query;
         $driver = config('database.default');
 
-        // Database-specific SQL
-        if ($driver === 'mysql') {
-            $hourSql = 'HOUR(created_at) as hour';
-            $dateSql = 'DATE(created_at) as date';
-        } else { // SQLite and others
-            $hourSql = "strftime('%H', created_at) as hour";
-            $dateSql = "strftime('%Y-%m-%d', created_at) as date";
-        }
+        $hourSql = $driver === 'mysql' ? 'HOUR(created_at) as hour' : "strftime('%H', created_at) as hour";
+        $dateSql = $driver === 'mysql' ? 'DATE(created_at) as date' : "strftime('%Y-%m-%d', created_at) as date";
 
         return [
             'requests_by_hour' => $baseQuery
                 ->selectRaw($hourSql)
                 ->selectRaw('COUNT(*) as count')
                 ->groupBy('hour')
-                ->orderByRaw($driver === 'mysql' ? 'HOUR(created_at) ASC' : "strftime('%H', created_at) ASC")
+                ->orderByRaw($driver === 'mysql' ? 'HOUR(created_at)' : "strftime('%H', created_at)")
                 ->get()
                 ->mapWithKeys(static function ($item) {
                     return [$item->hour . ':00' => $item->count];
@@ -171,7 +165,7 @@ readonly class ApiLogSummaryService
                 ->selectRaw($dateSql)
                 ->selectRaw('COUNT(*) as count')
                 ->groupBy('date')
-                ->orderByRaw($driver === 'mysql' ? 'DATE(created_at) ASC' : "strftime('%Y-%m-%d', created_at) ASC")
+                ->orderByRaw($driver === 'mysql' ? 'DATE(created_at)' : "strftime('%Y-%m-%d', created_at)")
                 ->get()
                 ->mapWithKeys(static function ($item) {
                     return [$item->date => $item->count];
@@ -186,7 +180,6 @@ readonly class ApiLogSummaryService
                 ->limit(10)
                 ->get(),
         ];
-
     }
 
     private function calculateCacheHitRate($query): float
@@ -231,7 +224,7 @@ readonly class ApiLogSummaryService
             ->selectRaw('MAX(response_time_ms) as max_response_time')
             ->selectRaw('COUNT(*) as request_count')
             ->groupBy('endpoint', 'method')
-            ->orderBy('avg_response_time', 'desc')
+            ->orderByRaw('AVG(response_time_ms) DESC')
             ->limit(10)
             ->get()
             ->map(static function ($item) {
@@ -255,7 +248,7 @@ readonly class ApiLogSummaryService
             ->selectRaw('COUNT(DISTINCT endpoint) as unique_endpoints')
             ->groupBy('ip_address')
             ->havingRaw('request_count > 100 OR error_count > 20')
-            ->orderByRaw('COUNT(*) DESC')  // FIXED here
+            ->orderByRaw('COUNT(*) DESC')
             ->limit(10)
             ->get()
             ->map(static function ($item) {
@@ -277,7 +270,7 @@ readonly class ApiLogSummaryService
 
         $botStats = [];
         foreach ($botPatterns as $pattern) {
-            $count = $baseQuery->where('user_agent', 'like', "%{$pattern}%")->count();
+            $count = (clone $baseQuery)->where('user_agent', 'like', "%{$pattern}%")->count();
             if ($count > 0) {
                 $botStats[$pattern] = $count;
             }
@@ -290,7 +283,6 @@ readonly class ApiLogSummaryService
     {
         $baseQuery = clone $query;
 
-        // Get IP counts
         $ipCounts = $baseQuery
             ->select('ip_address')
             ->selectRaw('COUNT(*) as count')
@@ -301,14 +293,11 @@ readonly class ApiLogSummaryService
             })
             ->toArray();
 
-        // Get country stats
         $countryStats = $this->geoService->getCountryStats($ipCounts);
-
-        // Get top cities
         $topCities = $this->getTopCities($baseQuery);
 
         return [
-            'countries' => array_slice($countryStats, 0, 10), // Top 10 countries
+            'countries' => array_slice($countryStats, 0, 10),
             'cities' => $topCities,
             'total_countries' => count($countryStats),
             'most_active_country' => $countryStats[0] ?? null,
@@ -318,11 +307,8 @@ readonly class ApiLogSummaryService
     private function getTopCities($query): array
     {
         $baseQuery = clone $query;
-
-        // Get unique IPs
         $uniqueIps = $baseQuery->distinct('ip_address')->pluck('ip_address')->toArray();
 
-        // Look up locations for unique IPs
         $cities = [];
         foreach ($uniqueIps as $ip) {
             $location = $this->geoService->getLocationData($ip);
@@ -339,14 +325,12 @@ readonly class ApiLogSummaryService
                     ];
                 }
 
-                // Count requests from this IP
-                $ipRequests = $baseQuery->where('ip_address', $ip)->count();
+                $ipRequests = (clone $baseQuery)->where('ip_address', $ip)->count();
                 $cities[$cityKey]['request_count'] += $ipRequests;
                 $cities[$cityKey]['unique_ips']++;
             }
         }
 
-        // Sort by request count and return top 10
         uasort($cities, static fn($a, $b) => $b['request_count'] <=> $a['request_count']);
 
         return array_slice(array_values($cities), 0, 10);
