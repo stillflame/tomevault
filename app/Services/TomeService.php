@@ -7,7 +7,6 @@ use App\Models\Tome;
 use App\Http\Resources\TomeResource;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use JsonException;
 
@@ -114,7 +113,7 @@ class TomeService
             ];
         }
 
-        $data = TomeListResource::collection($paginator->getCollection())->resolve();
+        $data = TomeListResource::collection($paginator->getCollection());
 
         return [
             'data' => $data,
@@ -141,7 +140,7 @@ class TomeService
         }
 
         $resourceStart = microtime(true);
-        $data = TomeListResource::collection($tomes)->resolve();
+        $data = TomeListResource::collection($tomes);
         $resourceTime = (microtime(true) - $resourceStart) * 1000;
 
         Log::info('TomeService Timing', [
